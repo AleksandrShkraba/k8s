@@ -1,0 +1,2 @@
+[master]
+master ansible_host=10.6.210.211

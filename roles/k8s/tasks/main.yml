@@ -1,0 +1,106 @@
+---
+- name: off selinux
+  shell: setenforce 0
+
+- name: disable selinux
+  lineinfile:
+    path: /etc/selinux/config
+    regexp: '^SELINUX='
+    line: SELINUX=disable
+
+- name: stop and disable firewalld
+  systemd:
+    name: firewalld
+    state: stopped
+    enabled: no
+    masked: yes
+
+- name: install iptables
+  yum:
+    name: iptables-services
+    state: present
+
+- name: start and enable iptables service
+  service:
+    name: iptables
+    state: started
+    enabled: yes
+
+- name: add docker repo
+  yum_repository:
+    name: "{{item.name}}"
+    description: "{{item.desc}}"
+    baseurl: "{{item.url}}"
+    enabled: yes
+    gpgcheck: no
+  loop:
+    - { name: docker, desc: 'docker YUM repo', url: 'https://download.docker.com/linux/centos/7/$basearch/stable'}
+    - { name: kubernetes, desc: 'kubernetes YUM repo', url: 'https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64'}
+
+- name: install depend-s and docker
+  yum:
+    name: "{{item}}"
+  loop:
+    - yum-utils
+    - device-mapper-persistent-data
+    - lvm2
+    - docker-ce
+    - docker-ce-cli
+    - containerd.io
+
+- name: start and enable docker
+  service:
+    name: docker
+    state: started
+    enabled: yes
+
+- name: install k8s
+  yum:
+    name: "{{item}}"
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+
+- name: network fix
+  sysctl:
+    name: net.bridge.bridge-nf-call-iptables
+    value: 1
+    state: present
+
+- name: Disable system swap
+  shell: "swapoff -a"
+
+- name: Remove current swaps from fstab
+  lineinfile:
+    dest: /etc/fstab
+    regexp: '.*swap.*'
+    line: ''
+
+- name: start and enable k8s
+  service:
+    name: kubelet
+    state: started
+    enabled: yes
+
+- name: init claster
+  shell: |
+        kubeadm init --pod-network-cidr=192.168.0.0/16 --token=a12345.a123456789012345
+
+- name: create dir for config
+  file:
+    path: ~/.kube
+    owner: root
+    group: root
+    mode: '0777'
+
+- name: copy config for k8s
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: ~/.kube/
+    owner: root
+    group: root
+    mode:  '0777'
+
+- name: install calico
+  shell: kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
